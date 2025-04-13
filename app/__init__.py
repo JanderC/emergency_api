@@ -52,10 +52,7 @@ def create_app():
     def hello():
         return "API de Emergencias funcionando correctamente con MongoDB"
     
-    # Función para cerrar conexiones a la base de datos
-    @app.teardown_appcontext
-    def close_db_connection(error):
-        if mongo_client:
-            mongo_client.close()
+    # NO CERRAR la conexión a MongoDB para evitar el error
+    # Este es un workaround temporal
     
     return app

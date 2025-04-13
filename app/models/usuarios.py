@@ -49,7 +49,8 @@ class Usuario:
     
     @classmethod
     def find_by_email(cls, email):
-        user_data = cls.collection.find_one({"email": email})
+        # Accedemos directamente a la colección sin crear una instancia
+        user_data = db.usuarios.find_one({"email": email})
         if user_data:
             return cls(
                 _id=str(user_data["_id"]),
@@ -67,7 +68,8 @@ class Usuario:
     @classmethod
     def find_by_id(cls, user_id):
         try:
-            user_data = cls.collection.find_one({"_id": ObjectId(user_id)})
+            # Accedemos directamente a la colección sin crear una instancia
+            user_data = db.usuarios.find_one({"_id": ObjectId(user_id)})
             if user_data:
                 return cls(
                     _id=str(user_data["_id"]),
