@@ -12,13 +12,24 @@ def reportar_incidente(usuario_id, datos):
     Crea un nuevo reporte de incidente en el sistema usando MongoDB
     """
     try:
-        # Validar coordenadas (asumimos que esta función existe)
+        # Registrar para depuración
+        print(f"reportar_incidente: usuario_id recibido = {usuario_id}")
+        
+        # Asegurarnos de que usuario_id sea string si es necesario
+        if isinstance(usuario_id, ObjectId):
+            usuario_id_str = str(usuario_id)
+        else:
+            usuario_id_str = usuario_id
+            
+        print(f"reportar_incidente: usuario_id procesado como string = {usuario_id_str}")
+        
+        # Validar coordenadas
         if not validar_coordenadas(datos['coordenadas_lat'], datos['coordenadas_lng']):
             return {"error": "Coordenadas inválidas"}, 400
         
         # Crear documento de incidente
         incidente = crear_documento_incidente(
-            usuario_id=usuario_id,
+            usuario_id=usuario_id_str,  # Usar la versión string
             tipo_emergencia=datos['tipo_emergencia'],
             descripcion=datos['descripcion'],
             ubicacion=datos['ubicacion'],
@@ -36,14 +47,16 @@ def reportar_incidente(usuario_id, datos):
         bomberos_disponibles = list(db.bomberos.find({"estado_servicio": "disponible"}))
         for bombero in bomberos_disponibles:
             mensaje = f"Nuevo incidente reportado: {datos['tipo_emergencia']} - {datos['ubicacion']} - Nivel: {datos['nivel_urgencia']}"
-            crear_notificacion(bombero["usuario_id"], incidente_id, mensaje)
+            # Asegurar que bombero["usuario_id"] sea string
+            bombero_usuario_id = str(bombero["usuario_id"]) if isinstance(bombero["usuario_id"], ObjectId) else bombero["usuario_id"]
+            crear_notificacion(bombero_usuario_id, incidente_id, mensaje)
 
         return {"mensaje": "Incidente reportado con éxito", "id": incidente_id}, 201
     
     except Exception as e:
         current_app.logger.error(f"Error al reportar incidente: {str(e)}")
         return {"error": f"Error al reportar el incidente: {str(e)}"}, 500
-
+    
 def obtener_incidentes(filtros=None):
     """
     Obtiene lista de incidentes con filtros opcionales desde MongoDB
@@ -215,8 +228,14 @@ def crear_notificacion(usuario_id, incidente_id, mensaje):
     Crea una nueva notificación en MongoDB
     """
     try:
+        # Asegurar que usuario_id sea string si es necesario
+        if isinstance(usuario_id, ObjectId):
+            usuario_id_str = str(usuario_id)
+        else:
+            usuario_id_str = usuario_id
+            
         notificacion = {
-            "usuario_id": usuario_id,
+            "usuario_id": usuario_id_str,  # Usar la versión string
             "incidente_id": incidente_id,
             "mensaje": mensaje,
             "fecha": datetime.utcnow(),

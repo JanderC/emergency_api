@@ -1,5 +1,5 @@
 # app/middlewares/auth.py
-from flask import request, jsonify
+from flask import request, jsonify, g
 from functools import wraps
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
 
@@ -9,6 +9,11 @@ def token_required(f):
         try:
             # Verificar JWT en request
             verify_jwt_in_request()
+            
+            # Obtener el ID del usuario del token y guardar en el contexto global
+            claims = get_jwt()
+            g.usuario_id = claims.get('usuario_id')
+            
             return f(*args, **kwargs)
         except Exception as e:
             return jsonify({'error': 'Token inválido o expirado'}), 401
@@ -23,6 +28,9 @@ def admin_required(f):
             
             # Obtener claims del JWT
             claims = get_jwt()
+            
+            # Guardar el ID del usuario en el contexto global
+            g.usuario_id = claims.get('usuario_id')
             
             # Verificar si es admin
             if not claims.get('es_admin', False):
@@ -42,6 +50,9 @@ def bombero_required(f):
             
             # Obtener claims del JWT
             claims = get_jwt()
+            
+            # Guardar el ID del usuario en el contexto global
+            g.usuario_id = claims.get('usuario_id')
             
             # Verificar si es bombero
             if not claims.get('es_bombero', False):

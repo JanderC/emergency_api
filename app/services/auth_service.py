@@ -49,11 +49,17 @@ class AuthService:
         # Generar tokens de acceso y refresh
         access_token = create_access_token(
             identity=str(usuario.id),
-            additional_claims={'es_bombero': usuario.es_bombero},
+            additional_claims={
+                'es_bombero': usuario.es_bombero,
+                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id también
+            },
             expires_delta=timedelta(hours=1)
         )
         refresh_token = create_refresh_token(
             identity=str(usuario.id),
+            additional_claims={
+                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id en el refresh token
+            },
             expires_delta=timedelta(days=30)
         )
         
@@ -71,7 +77,10 @@ class AuthService:
         
         access_token = create_access_token(
             identity=str(usuario.id),
-            additional_claims={'es_bombero': usuario.es_bombero},
+            additional_claims={
+                'es_bombero': usuario.es_bombero,
+                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id aquí también
+            },
             expires_delta=timedelta(hours=1)
         )
         
