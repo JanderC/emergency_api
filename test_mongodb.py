@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
-
+print("🔍 MONGO_URI leído:", os.getenv("MONGO_URI"))
 def test_connection():
     try:
         # Configurar MongoDB
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb+srv://janderalexisc:<mWtVaKwO3j6XfOOZ>@emergencylinerubio.xqy43ih.mongodb.net/?retryWrites=true&w=majority&appName=emergencyLineRubio")
         mongo_client = MongoClient(mongo_uri)
         db_name = os.getenv("MONGO_DBNAME", "emergencia_linea_db")
         db = mongo_client[db_name]
