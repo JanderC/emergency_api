@@ -19,7 +19,7 @@ def token_required(f):
             return jsonify({'error': 'Token inválido o expirado'}), 401
     return decorated
 
-def admin_required(f):
+def _required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         try:

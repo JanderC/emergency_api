@@ -2,6 +2,8 @@ from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from pymongo import MongoClient
+from pymongo.server_api import ServerApi
+
 import os
 from dotenv import load_dotenv
 
@@ -24,10 +26,20 @@ def create_app():
     
     # Configurar MongoDB
     global mongo_client, db
-    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-    mongo_client = MongoClient(mongo_uri)
-    db = mongo_client[os.getenv("MONGO_DBNAME", "emergencia_linea_db")]
-    
+    mongo_uri = os.getenv(
+        "MONGO_URI",
+        "mongodb+srv://janderalexisc:<mWtVaKwO3j6XfOOZ>@emergencylinerubio.xqy43ih.mongodb.net/?retryWrites=true&w=majority&appName=emergencyLineRubio"
+    )
+
+    try:
+        mongo_client = MongoClient(mongo_uri, server_api=ServerApi('1'))
+        # Enviar un ping para verificar la conexión
+        mongo_client.admin.command('ping')
+        print("✅ Conexión a MongoDB Atlas establecida correctamente.")
+        db = mongo_client[os.getenv("MONGO_DBNAME", "emergencia_linea_db")]
+    except Exception as e:
+        print("❌ Error al conectar con MongoDB Atlas:", e)
+
     # Inicializar extensiones con la app
     jwt.init_app(app)
     CORS(app)
@@ -36,11 +48,9 @@ def create_app():
     from app.routes.auth import auth_bp
     app.register_blueprint(auth_bp)
     
-    # Registrar blueprint para bomberos
     from app.routes.bomberos import bombero_bp
     app.register_blueprint(bombero_bp)
     
-    # Registrar blueprint para incidentes
     from app.routes.incidentes import incidente_bp
     app.register_blueprint(incidente_bp)
 
@@ -51,8 +61,5 @@ def create_app():
     @app.route('/')
     def hello():
         return "API de Emergencias funcionando correctamente con MongoDB"
-    
-    # NO CERRAR la conexión a MongoDB para evitar el error
-    # Este es un workaround temporal
     
     return app
