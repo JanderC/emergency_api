@@ -1,141 +1,142 @@
 # app/services/ambulancia_service.py
-from flask import current_app
-from app.models.ambulancia import Ambulancia
-from app.models.bombero import Bombero
-from app.models.cambios_ambulancia import CambioAmbulancia
-from datetime import datetime
 
-def registrar_ambulancia(datos, bombero_id=None):
+# ❌ ELIMINAR ESTA LÍNEA:
+# from app.models.ambulancia import Ambulancia
+
+# ✅ En su lugar, trabajar directamente con la base de datos
+from app import db
+from bson.objectid import ObjectId
+from datetime import datetime
+from flask import current_app
+
+# app/services/ambulancia_service.py
+
+def registrar_ambulancia(datos, bombero_id):
     """
-    Registra una nueva ambulancia en el sistema y opcionalmente la asigna a un bombero
+    Registra una nueva ambulancia en MongoDB
     """
     try:
-        db = current_app.extensions['sqlalchemy'].db
+        ambulancia_data = {
+            "placa": datos['placa'],
+            "modelo": datos.get('modelo'),
+            "tipo": datos.get('tipo'),  # AGREGAR
+            "capacidad": datos.get('capacidad'),  # AGREGAR
+            "ano": datos.get('ano'),
+            "estado": datos.get('estado', 'operativa'),
+            "estacion_pertenencia": datos.get('estacion_pertenencia'),  # AGREGAR
+            "bombero_asignado_id": None,
+            "ubicacion_actual": None,
+            "fecha_registro": datetime.utcnow()
+        }
         
-        # Verificar si la placa ya existe
-        ambulancia_existente = Ambulancia.query.filter_by(placa=datos['placa']).first()
-        if ambulancia_existente:
-            return {"error": "Ya existe una ambulancia con esa placa"}, 400
-        
-        # Crear nueva ambulancia
-        nueva_ambulancia = Ambulancia(
-            placa=datos['placa'],
-            modelo=datos['modelo'],
-            ano=datos['ano'],
-            estado=datos.get('estado', 'operativa'),
-            bombero_asignado_id=bombero_id,
-            ubicacion_actual=datos.get('ubicacion_actual')
-        )
-        
-        db.session.add(nueva_ambulancia)
-        
-        # Si hay un bombero asignado, actualizar su referencia a la ambulancia
-        if bombero_id:
-            bombero = Bombero.query.get(bombero_id)
-            if bombero:
-                bombero.ambulancia_id = nueva_ambulancia.id
-                bombero.estado_servicio = 'disponible'
-        
-        db.session.commit()
+        result = db.ambulancias.insert_one(ambulancia_data)
         
         return {
-            "mensaje": "Ambulancia registrada con éxito",
-            "id": nueva_ambulancia.id
+            "mensaje": "Ambulancia registrada exitosamente",
+            "ambulancia_id": str(result.inserted_id)
         }, 201
-    
+        
     except Exception as e:
-        db.session.rollback()
         current_app.logger.error(f"Error al registrar ambulancia: {str(e)}")
-        return {"error": "Error al registrar la ambulancia"}, 500
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
+        return {"error": "Error al registrar ambulancia"}, 500
 
 def asignar_ambulancia(ambulancia_id, bombero_id):
     """
     Asigna una ambulancia a un bombero
     """
     try:
-        db = current_app.extensions['sqlalchemy'].db
+        object_id = ObjectId(ambulancia_id)
         
-        ambulancia = Ambulancia.query.get(ambulancia_id)
+        # Verificar que la ambulancia existe y está disponible
+        ambulancia = db.ambulancias.find_one({"_id": object_id})
         if not ambulancia:
             return {"error": "Ambulancia no encontrada"}, 404
-            
-        bombero = Bombero.query.get(bombero_id)
-        if not bombero:
-            return {"error": "Bombero no encontrado"}, 404
-            
-        # Si la ambulancia ya está asignada a otro bombero, registrar el cambio
-        if ambulancia.bombero_asignado_id and ambulancia.bombero_asignado_id != bombero_id:
-            cambio = CambioAmbulancia(
-                bombero_anterior_id=ambulancia.bombero_asignado_id,
-                bombero_nuevo_id=bombero_id,
-                ambulancia_id=ambulancia_id,
-                estado='confirmado',
-                razon_cambio='Reasignación de ambulancia'
-            )
-            db.session.add(cambio)
-            
-            # Actualizar el bombero anterior
-            bombero_anterior = Bombero.query.get(ambulancia.bombero_asignado_id)
-            if bombero_anterior:
-                bombero_anterior.ambulancia_id = None
         
-        # Asignar ambulancia al nuevo bombero
-        ambulancia.bombero_asignado_id = bombero_id
-        bombero.ambulancia_id = ambulancia_id
+        if ambulancia.get('estado') != 'operativa':
+            return {"error": "La ambulancia no está operativa"}, 400
         
-        db.session.commit()
+        if ambulancia.get('bombero_asignado_id'):
+            return {"error": "La ambulancia ya está asignada"}, 400
         
-        return {
-            "mensaje": "Ambulancia asignada con éxito", 
-            "ambulancia_id": ambulancia_id,
-            "bombero_id": bombero_id
-        }, 200
-    
+        # Asignar
+        result = db.ambulancias.update_one(
+            {"_id": object_id},
+            {"$set": {
+                "bombero_asignado_id": bombero_id,
+                "fecha_asignacion": datetime.utcnow()
+            }}
+        )
+        
+        if result.modified_count == 0:
+            return {"error": "No se pudo asignar la ambulancia"}, 400
+        
+        return {"mensaje": "Ambulancia asignada exitosamente"}, 200
+        
     except Exception as e:
-        db.session.rollback()
         current_app.logger.error(f"Error al asignar ambulancia: {str(e)}")
-        return {"error": "Error al asignar la ambulancia"}, 500
+        return {"error": "Error al asignar ambulancia"}, 500
 
 def actualizar_estado_ambulancia(ambulancia_id, nuevo_estado):
     """
     Actualiza el estado de una ambulancia
     """
     try:
-        db = current_app.extensions['sqlalchemy'].db
-        ambulancia = Ambulancia.query.get(ambulancia_id)
+        object_id = ObjectId(ambulancia_id)
         
+        # Verificar que existe
+        ambulancia = db.ambulancias.find_one({"_id": object_id})
         if not ambulancia:
             return {"error": "Ambulancia no encontrada"}, 404
-            
-        ambulancia.estado = nuevo_estado
-        db.session.commit()
         
-        return {
-            "mensaje": f"Estado de ambulancia actualizado a {nuevo_estado}",
-            "ambulancia_id": ambulancia_id
-        }, 200
-    
+        # Actualizar
+        result = db.ambulancias.update_one(
+            {"_id": object_id},
+            {"$set": {"estado": nuevo_estado}}
+        )
+        
+        if result.modified_count == 0:
+            return {"error": "No se pudo actualizar el estado"}, 400
+        
+        return {"mensaje": "Estado actualizado exitosamente"}, 200
+        
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error al actualizar estado de ambulancia {ambulancia_id}: {str(e)}")
-        return {"error": "Error al actualizar el estado de la ambulancia"}, 500
+        current_app.logger.error(f"Error al actualizar estado: {str(e)}")
+        return {"error": "Error al actualizar estado"}, 500
 
 def obtener_ambulancias(filtros=None):
     """
     Obtiene lista de ambulancias con filtros opcionales
     """
     try:
-        query = Ambulancia.query
+        query = {}
         
         if filtros:
             if 'estado' in filtros:
-                query = query.filter(Ambulancia.estado == filtros['estado'])
+                query['estado'] = filtros['estado']
             if 'disponible' in filtros and filtros['disponible']:
-                query = query.filter(Ambulancia.bombero_asignado_id == None)
+                query['bombero_asignado_id'] = None
+                query['estado'] = 'operativa'
         
-        ambulancias = query.all()
+        ambulancias = list(db.ambulancias.find(query))
+        
+        # Convertir ObjectIds a strings
+        for ambulancia in ambulancias:
+            ambulancia['_id'] = str(ambulancia['_id'])
+            if ambulancia.get('bombero_asignado_id'):
+                # Obtener info del bombero si existe
+                bombero = db.bomberos.find_one({"usuario_id": ambulancia['bombero_asignado_id']})
+                if bombero:
+                    usuario = db.usuarios.find_one({"_id": ObjectId(ambulancia['bombero_asignado_id'])})
+                    if usuario:
+                        ambulancia['bombero_info'] = {
+                            'nombre': f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}",
+                            'codigo': bombero.get('codigo_bombero', '')
+                        }
+        
         return ambulancias, 200
-    
+        
     except Exception as e:
         current_app.logger.error(f"Error al obtener ambulancias: {str(e)}")
         return {"error": "Error al obtener ambulancias"}, 500

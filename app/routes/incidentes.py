@@ -17,17 +17,13 @@ def crear_incidente():
     """
     Endpoint para reportar un nuevo incidente
     """
-    # Verificamos si tenemos acceso a g.usuario_id
     current_app.logger.info("=== INICIO DEBUG CREAR INCIDENTE ===")
     
-    # Log para verificar si el token llegó y se procesó correctamente
     current_app.logger.info(f"Token procesado: usuario_id = {g.usuario_id if hasattr(g, 'usuario_id') else 'No disponible'}")
     
-    # Log para verificar los headers de la solicitud
     auth_header = request.headers.get('Authorization', 'No hay header de autorización')
     current_app.logger.info(f"Header de autorización: {auth_header}")
     
-    # Verificamos que el usuario_id exista antes de continuar
     if not hasattr(g, 'usuario_id'):
         current_app.logger.error("No se encontró usuario_id en el contexto global")
         return jsonify({"error": "No autorizado - Token inválido o ausente"}), 401
@@ -36,10 +32,8 @@ def crear_incidente():
     current_app.logger.info(f"Usuario ID validado: {usuario_id}")
     
     try:
-        # Log para verificar el body recibido
         current_app.logger.info(f"Datos recibidos: {request.json}")
         
-        # Validar datos
         schema = ReporteIncidenteSchema()
         try:
             datos = schema.load(request.json)
@@ -48,7 +42,6 @@ def crear_incidente():
             current_app.logger.error(f"Error en la validación del schema: {str(schema_error)}")
             return jsonify({"error": f"Error en los datos proporcionados: {str(schema_error)}"}), 400
         
-        # Registrar incidente
         current_app.logger.info(f"Llamando a reportar_incidente con usuario_id: {usuario_id}")
         resultado, codigo = reportar_incidente(usuario_id, datos)
         current_app.logger.info(f"Resultado de reportar_incidente: {resultado}, código: {codigo}")
@@ -70,7 +63,6 @@ def listar_incidentes():
     Endpoint para obtener lista de incidentes
     """
     try:
-        # Filtros opcionales
         filtros = {}
         if 'estado' in request.args:
             filtros['estado'] = request.args.get('estado')
@@ -79,7 +71,6 @@ def listar_incidentes():
         if 'tipo_emergencia' in request.args:
             filtros['tipo_emergencia'] = request.args.get('tipo_emergencia')
         
-        # Obtener incidentes
         incidentes, codigo = obtener_incidentes(filtros)
         
         if isinstance(incidentes, list):
@@ -99,24 +90,20 @@ def obtener_incidente_por_mongodb_id(mongodb_id):
     Endpoint para obtener un incidente por su ID de MongoDB
     """
     try:
-        # Intentar convertir el ID a ObjectId
         try:
             from bson.objectid import ObjectId
             object_id = ObjectId(mongodb_id)
         except Exception as e:
             return jsonify({"error": f"ID de MongoDB inválido: {str(e)}"}), 400
             
-        # Buscar el incidente
         from app import db
         incidente = db.incidentes.find_one({"_id": object_id})
         
         if not incidente:
             return jsonify({"error": "Incidente no encontrado"}), 404
             
-        # Convertir ObjectId a string para JSON
         incidente["_id"] = str(incidente["_id"])
         
-        # Usar el schema para formatear la respuesta
         schema = IncidenteSchema()
         return jsonify(schema.dump(incidente)), 200
             
@@ -124,15 +111,31 @@ def obtener_incidente_por_mongodb_id(mongodb_id):
         current_app.logger.error(f"Error al buscar incidente por MongoDB ID: {str(e)}")
         return jsonify({"error": "Error al procesar la solicitud"}), 500
 
-@incidente_bp.route('/<int:incidente_id>', methods=['GET'])
+@incidente_bp.route('/<string:incidente_id>', methods=['GET'])
 @token_required
 def detalle_incidente(incidente_id):
     """
-    Endpoint para obtener detalles de un incidente específico
+    Endpoint para obtener detalles de un incidente por ID (entero o MongoDB ObjectId)
     """
     try:
-        # Obtener incidente
-        incidente, codigo = obtener_incidente(incidente_id)
+        if incidente_id.isdigit():
+            incidente, codigo = obtener_incidente(int(incidente_id))
+        else:
+            try:
+                from bson.objectid import ObjectId
+                object_id = ObjectId(incidente_id)
+                
+                from app import db
+                incidente = db.incidentes.find_one({"_id": object_id})
+                
+                if not incidente:
+                    return jsonify({"error": "Incidente no encontrado"}), 404
+                    
+                incidente["_id"] = str(incidente["_id"])
+                codigo = 200
+                
+            except Exception as e:
+                return jsonify({"error": f"ID inválido: {str(e)}"}), 400
         
         if codigo == 200:
             schema = IncidenteSchema()
@@ -144,32 +147,124 @@ def detalle_incidente(incidente_id):
         current_app.logger.error(f"Error en endpoint de detalle incidente: {str(e)}")
         return jsonify({"error": "Error al procesar la solicitud"}), 500
 
-@incidente_bp.route('/<int:incidente_id>/estado', methods=['PUT'])
+@incidente_bp.route('/<string:incidente_id>/estado', methods=['PUT'])
 @token_required
 def cambiar_estado_incidente(incidente_id):
     """
-    Endpoint para actualizar el estado de un incidente
+    Endpoint para actualizar el estado de un incidente (acepta MongoDB ObjectId)
     """
     try:
         datos = request.json
         
         if 'estado' not in datos:
             return jsonify({"error": "El estado es requerido"}), 400
-            
-        bombero_id = datos.get('bombero_id')
-        ambulancia_id = datos.get('ambulancia_id')
-        nuevo_estado = datos['estado']
         
-        # Actualizar estado
-        resultado, codigo = actualizar_estado_incidente(
-            incidente_id, 
-            bombero_id, 
-            ambulancia_id, 
-            nuevo_estado
+        # Intentar convertir a ObjectId
+        try:
+            from bson.objectid import ObjectId
+            object_id = ObjectId(incidente_id)
+        except Exception as e:
+            return jsonify({"error": f"ID de incidente inválido: {str(e)}"}), 400
+        
+        from app import db
+        from datetime import datetime
+        
+        # Verificar que el incidente existe
+        incidente = db.incidentes.find_one({"_id": object_id})
+        if not incidente:
+            return jsonify({"error": "Incidente no encontrado"}), 404
+        
+        # Construir el update
+        update_data = {
+            "estado": datos['estado']
+        }
+        
+        # Si se proporciona bombero_id, agregarlo
+        if 'bombero_id' in datos:
+            update_data['bombero_asignado_id'] = datos['bombero_id']
+        
+        # Si se proporciona ambulancia_id, agregarlo
+        if 'ambulancia_id' in datos:
+            update_data['ambulancia_id'] = datos['ambulancia_id']
+        
+        # Si el estado es 'en_proceso', actualizar fecha_atencion
+        if datos['estado'] == 'en_proceso':
+            update_data['fecha_atencion'] = datetime.utcnow()
+        
+        # Actualizar en MongoDB
+        result = db.incidentes.update_one(
+            {"_id": object_id},
+            {"$set": update_data}
         )
         
-        return jsonify(resultado), codigo
+        if result.modified_count == 0:
+            return jsonify({"error": "No se pudo actualizar el incidente"}), 400
+        
+        # Obtener el incidente actualizado
+        incidente_actualizado = db.incidentes.find_one({"_id": object_id})
+        incidente_actualizado["_id"] = str(incidente_actualizado["_id"])
+        
+        return jsonify({
+            "mensaje": "Estado del incidente actualizado exitosamente",
+            "incidente": incidente_actualizado
+        }), 200
         
     except Exception as e:
         current_app.logger.error(f"Error en endpoint de cambiar estado: {str(e)}")
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({"error": "Error al procesar la solicitud"}), 500
+    
+
+@incidente_bp.route('/<string:incidente_id>/completar', methods=['PUT'])
+@token_required
+def completar_incidente(incidente_id):
+    """
+    Endpoint para completar un incidente (shortcut de cambiar estado a completado)
+    """
+    try:
+        from bson.objectid import ObjectId
+        from app import db
+        from datetime import datetime
+        
+        # Validar ObjectId
+        try:
+            object_id = ObjectId(incidente_id)
+        except Exception as e:
+            return jsonify({"error": f"ID de incidente inválido: {str(e)}"}), 400
+        
+        # Verificar que existe
+        incidente = db.incidentes.find_one({"_id": object_id})
+        if not incidente:
+            return jsonify({"error": "Incidente no encontrado"}), 404
+        
+        # Verificar que tiene bombero asignado
+        if not incidente.get('bombero_asignado_id'):
+            return jsonify({"error": "El incidente no tiene bombero asignado"}), 400
+        
+        # Actualizar a completado
+        result = db.incidentes.update_one(
+            {"_id": object_id},
+            {"$set": {
+                "estado": "completado",
+                "fecha_completado": datetime.utcnow()
+            }}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({"error": "No se pudo completar el incidente"}), 400
+        
+        # Obtener incidente actualizado
+        incidente_actualizado = db.incidentes.find_one({"_id": object_id})
+        incidente_actualizado["_id"] = str(incidente_actualizado["_id"])
+        
+        return jsonify({
+            "mensaje": "Incidente completado exitosamente",
+            "incidente": incidente_actualizado
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error al completar incidente: {str(e)}")
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": "Error al procesar la solicitud"}), 500

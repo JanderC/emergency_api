@@ -1,23 +1,30 @@
-from marshmallow import Schema, fields, validate, validates, ValidationError
-
-class AmbulanciaSchema(Schema):
-    id = fields.Integer(dump_only=True)
-    placa = fields.String(required=True, validate=validate.Length(min=5, max=20))
-    modelo = fields.String(validate=validate.Length(max=100))
-    ano = fields.Integer(validate=[validate.Range(min=1990, max=2030)])
-    estado = fields.String(
-        validate=validate.OneOf(['operativa', 'mantenimiento', 'fuera_de_servicio']), 
-        default='operativa'
-    )
-    bombero_asignado_id = fields.Integer(allow_none=True)
-    ubicacion_actual = fields.String(allow_none=True)
+# app/schemas/ambulancia_schema.py
+from marshmallow import Schema, fields, validate
 
 class RegistroAmbulanciaSchema(Schema):
-    placa = fields.String(required=True, validate=validate.Length(min=5, max=20))
-    modelo = fields.String(required=True, validate=validate.Length(max=100))
-    ano = fields.Integer(required=True, validate=[validate.Range(min=1990, max=2030)])
-    estado = fields.String(
-        validate=validate.OneOf(['operativa', 'mantenimiento', 'fuera_de_servicio']), 
-        default='operativa'
+    placa = fields.Str(required=True)
+    modelo = fields.Str(required=False, allow_none=True)
+    tipo = fields.Str(required=False, allow_none=True)  # AGREGAR
+    capacidad = fields.Int(required=False, allow_none=True)  # AGREGAR
+    ano = fields.Int(required=False, allow_none=True)
+    estado = fields.Str(
+        required=False,
+        validate=validate.OneOf(['operativa', 'en_servicio', 'mantenimiento', 'fuera_de_servicio']),
+        missing='operativa'
     )
-    ubicacion_actual = fields.String(allow_none=True)
+    estacion_pertenencia = fields.Str(required=False, allow_none=True)  # AGREGAR
+
+class AmbulanciaSchema(Schema):
+    _id = fields.Str(dump_only=True)
+    placa = fields.Str()
+    modelo = fields.Str()
+    tipo = fields.Str()  # AGREGAR
+    capacidad = fields.Int()  # AGREGAR
+    ano = fields.Int()
+    estado = fields.Str()
+    estacion_pertenencia = fields.Str()  # AGREGAR
+    bombero_asignado_id = fields.Str(allow_none=True)
+    ubicacion_actual = fields.Dict(allow_none=True)
+    fecha_registro = fields.DateTime()
+    fecha_asignacion = fields.DateTime(allow_none=True)
+    bombero_info = fields.Dict(allow_none=True)

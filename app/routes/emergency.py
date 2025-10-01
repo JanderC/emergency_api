@@ -72,12 +72,16 @@ def liberar_emergencia_endpoint(incidente_id):
 @token_required
 @bombero_required
 def listar_mis_emergencias():
+    
     """
     Obtiene las emergencias asignadas al bombero actual
     """
+    print("Esto trae bombero id", bombero_id)
+
     try:
-        bombero_id = g.usuario_id
-        
+        datos = request.json
+        #buscamos el bombero id 
+        bombero_id = datos.get('bombero_id')
         # Filtros opcionales
         filtros = {}
         if 'estado' in request.args:

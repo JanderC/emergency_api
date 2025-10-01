@@ -76,8 +76,8 @@ def actualizar_perfil_usuario(usuario_id, datos):
         else:
             _id = usuario_id
         
-        # Campos permitidos para actualizar
-        campos_permitidos = ['nombre', 'apellido', 'telefono', 'direccion']
+        # Campos permitidos para actualizar - AGREGAR foto_perfil
+        campos_permitidos = ['nombre', 'apellido', 'telefono', 'direccion', 'foto_perfil']
         update_data = {}
         
         for campo in campos_permitidos:
@@ -108,7 +108,7 @@ def actualizar_perfil_usuario(usuario_id, datos):
     except Exception as e:
         current_app.logger.error(f"Error al actualizar perfil: {str(e)}")
         return {"error": "Error al actualizar el perfil"}, 500
-
+    
 def cambiar_password_usuario(usuario_id, password_actual, password_nueva):
     """
     Cambia la contraseña de un usuario

@@ -6,6 +6,7 @@ from pymongo.server_api import ServerApi
 import os
 from dotenv import load_dotenv
 
+
 # Cargar variables de entorno
 load_dotenv()
 
@@ -58,6 +59,17 @@ def create_app():
     # Registrar blueprint para incidentes
     from app.routes.incidentes import incidente_bp
     app.register_blueprint(incidente_bp)
+
+    # Registrar blueprint para usuarios
+    from app.routes.usuarios import usuario_bp
+    app.register_blueprint(usuario_bp)
+
+    # Registrar blueprint para emergencias
+    from app.routes.emergency import emergencia_bp
+    app.register_blueprint(emergencia_bp)
+
+    from app.routes.ambulancias import ambulancia_bp
+    app.register_blueprint(ambulancia_bp)
     
     # Crear directorio de uploads si no existe
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
