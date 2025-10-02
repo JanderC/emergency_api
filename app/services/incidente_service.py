@@ -1,15 +1,37 @@
 """
-Servicios para gestionar incidentes en MongoDB
+Servicios para gestionar incidentes en MongoDB con soporte de imágenes base64
 """
 from flask import current_app
 from app.models.incidentes import crear_documento_incidente
 from datetime import datetime
 from bson.objectid import ObjectId
 from app import db
+import base64
+import re
+
+def validar_imagen_base64(imagen_base64):
+    """
+    Valida que una cadena sea una imagen base64 válida
+    """
+    try:
+        if not imagen_base64 or not isinstance(imagen_base64, str):
+            return False
+        
+        # Verificar si tiene el prefijo data:image
+        if imagen_base64.startswith('data:image'):
+            # Extraer solo la parte base64
+            imagen_base64 = imagen_base64.split(',')[1] if ',' in imagen_base64 else imagen_base64
+        
+        # Intentar decodificar
+        base64.b64decode(imagen_base64)
+        return True
+    except Exception:
+        return False
 
 def reportar_incidente(usuario_id, datos):
     """
     Crea un nuevo reporte de incidente en el sistema usando MongoDB
+    Ahora con soporte para imágenes en base64
     """
     try:
         # Registrar para depuración
@@ -27,34 +49,63 @@ def reportar_incidente(usuario_id, datos):
         if not validar_coordenadas(datos['coordenadas_lat'], datos['coordenadas_lng']):
             return {"error": "Coordenadas inválidas"}, 400
         
+        # Procesar imágenes
+        imagenes = datos.get('imagenes', [])
+        imagenes_validas = []
+        
+        if imagenes and isinstance(imagenes, list):
+            for idx, imagen in enumerate(imagenes):
+                if validar_imagen_base64(imagen):
+                    # Si la imagen tiene el prefijo data:image, mantenerlo
+                    # Si no, agregarlo para facilitar su uso en el frontend
+                    if not imagen.startswith('data:image'):
+                        # Asumimos que es PNG por defecto si no tiene prefijo
+                        imagen = f"data:image/png;base64,{imagen}"
+                    imagenes_validas.append(imagen)
+                    print(f"Imagen {idx + 1} validada correctamente")
+                else:
+                    print(f"Imagen {idx + 1} no es válida, se omitirá")
+        
+        print(f"Total de imágenes válidas: {len(imagenes_validas)}")
+        
         # Crear documento de incidente
         incidente = crear_documento_incidente(
-            usuario_id=usuario_id_str,  # Usar la versión string
+            usuario_id=usuario_id_str,
             tipo_emergencia=datos['tipo_emergencia'],
             descripcion=datos['descripcion'],
             ubicacion=datos['ubicacion'],
             coordenadas_lat=datos['coordenadas_lat'],
             coordenadas_lng=datos['coordenadas_lng'],
             nivel_urgencia=datos['nivel_urgencia'],
-            imagenes=datos.get('imagenes', [])
+            imagenes=imagenes_validas  # Usar las imágenes validadas
         )
 
         # Guardar en MongoDB
         result = db.incidentes.insert_one(incidente)
         incidente_id = str(result.inserted_id)
 
-        # Notificar a bomberos disponibles (si existe la colección bomberos)
-        bomberos_disponibles = list(db.bomberos.find({"estado_servicio": "disponible"}))
-        for bombero in bomberos_disponibles:
-            mensaje = f"Nuevo incidente reportado: {datos['tipo_emergencia']} - {datos['ubicacion']} - Nivel: {datos['nivel_urgencia']}"
-            # Asegurar que bombero["usuario_id"] sea string
-            bombero_usuario_id = str(bombero["usuario_id"]) if isinstance(bombero["usuario_id"], ObjectId) else bombero["usuario_id"]
-            crear_notificacion(bombero_usuario_id, incidente_id, mensaje)
+        print(f"Incidente creado con ID: {incidente_id} y {len(imagenes_validas)} imágenes")
 
-        return {"mensaje": "Incidente reportado con éxito", "id": incidente_id}, 201
+        # Notificar a bomberos disponibles (si existe la colección bomberos)
+        try:
+            bomberos_disponibles = list(db.bomberos.find({"estado_servicio": "disponible"}))
+            for bombero in bomberos_disponibles:
+                mensaje = f"Nuevo incidente reportado: {datos['tipo_emergencia']} - {datos['ubicacion']} - Nivel: {datos['nivel_urgencia']}"
+                bombero_usuario_id = str(bombero["usuario_id"]) if isinstance(bombero["usuario_id"], ObjectId) else bombero["usuario_id"]
+                crear_notificacion(bombero_usuario_id, incidente_id, mensaje)
+        except Exception as e:
+            current_app.logger.warning(f"No se pudieron notificar a los bomberos: {str(e)}")
+
+        return {
+            "mensaje": "Incidente reportado con éxito", 
+            "id": incidente_id,
+            "imagenes_guardadas": len(imagenes_validas)
+        }, 201
     
     except Exception as e:
         current_app.logger.error(f"Error al reportar incidente: {str(e)}")
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         return {"error": f"Error al reportar el incidente: {str(e)}"}, 500
     
 def obtener_incidentes(filtros=None):
@@ -75,6 +126,9 @@ def obtener_incidentes(filtros=None):
         # Convertir ObjectId a string para JSON
         for incidente in incidentes:
             incidente["_id"] = str(incidente["_id"])
+            # Asegurar que imagenes siempre sea una lista
+            if "imagenes" not in incidente:
+                incidente["imagenes"] = []
         
         return incidentes, 200
     
@@ -105,6 +159,10 @@ def obtener_incidente(incidente_id):
         
         # Convertir ObjectId a string para JSON
         incidente["_id"] = str(incidente["_id"])
+        
+        # Asegurar que imagenes siempre sea una lista
+        if "imagenes" not in incidente:
+            incidente["imagenes"] = []
         
         return incidente, 200
     
@@ -235,7 +293,7 @@ def crear_notificacion(usuario_id, incidente_id, mensaje):
             usuario_id_str = usuario_id
             
         notificacion = {
-            "usuario_id": usuario_id_str,  # Usar la versión string
+            "usuario_id": usuario_id_str,
             "incidente_id": incidente_id,
             "mensaje": mensaje,
             "fecha": datetime.utcnow(),

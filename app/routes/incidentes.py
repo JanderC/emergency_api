@@ -60,27 +60,66 @@ def crear_incidente():
 @token_required
 def listar_incidentes():
     """
-    Endpoint para obtener lista de incidentes
+    Endpoint para obtener lista de incidentes con filtros mejorados
     """
     try:
-        filtros = {}
+        from app import db
+        
+        # Construir filtros de MongoDB
+        filtros_mongo = {}
+        
+        # Filtro de estado - soporta múltiples valores separados por coma
         if 'estado' in request.args:
-            filtros['estado'] = request.args.get('estado')
+            estados = request.args.get('estado').split(',')
+            # Si hay múltiples estados, usar $in
+            if len(estados) > 1:
+                filtros_mongo['estado'] = {"$in": [e.strip() for e in estados]}
+            else:
+                filtros_mongo['estado'] = estados[0].strip()
+        
+        # Filtro de nivel de urgencia
         if 'nivel_urgencia' in request.args:
-            filtros['nivel_urgencia'] = request.args.get('nivel_urgencia')
+            filtros_mongo['nivel_urgencia'] = request.args.get('nivel_urgencia')
+        
+        # Filtro de tipo de emergencia
         if 'tipo_emergencia' in request.args:
-            filtros['tipo_emergencia'] = request.args.get('tipo_emergencia')
+            filtros_mongo['tipo_emergencia'] = request.args.get('tipo_emergencia')
         
-        incidentes, codigo = obtener_incidentes(filtros)
+        # Filtro para incidentes sin bombero asignado
+        if request.args.get('sin_bombero') == 'true':
+            filtros_mongo['$or'] = [
+                {'bombero_asignado_id': None},
+                {'bombero_asignado_id': {"$exists": False}}
+            ]
         
-        if isinstance(incidentes, list):
-            schema = IncidenteSchema(many=True)
-            return jsonify(schema.dump(incidentes)), codigo
-        else:
-            return jsonify(incidentes), codigo
+        # Filtro para incidentes activos (reportado o en_proceso) sin bombero
+        if request.args.get('activos_sin_atender') == 'true':
+            filtros_mongo['estado'] = {"$in": ['reportado', 'en_proceso']}
+            filtros_mongo['$or'] = [
+                {'bombero_asignado_id': None},
+                {'bombero_asignado_id': {"$exists": False}}
+            ]
+        
+        current_app.logger.info(f"Filtros MongoDB aplicados: {filtros_mongo}")
+        
+        # Buscar en MongoDB
+        incidentes_cursor = db.incidentes.find(filtros_mongo).sort("fecha_reporte", -1)
+        incidentes = list(incidentes_cursor)
+        
+        # Convertir ObjectId a string
+        for incidente in incidentes:
+            incidente["_id"] = str(incidente["_id"])
+        
+        current_app.logger.info(f"Incidentes encontrados: {len(incidentes)}")
+        
+        # Serializar con schema
+        schema = IncidenteSchema(many=True)
+        return jsonify(schema.dump(incidentes)), 200
             
     except Exception as e:
         current_app.logger.error(f"Error en endpoint de listar incidentes: {str(e)}")
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": "Error al procesar la solicitud"}), 500
 
 @incidente_bp.route('/mongodb/<string:mongodb_id>', methods=['GET'])

@@ -13,14 +13,18 @@ def registrar_bombero(datos):
     Registra un nuevo bombero en el sistema MongoDB
     """
     try:
+        print(f"🔧 Iniciando registro de bombero con datos: {datos}")
+        
         # Verificar si el email ya existe
         usuario_existente = db.usuarios.find_one({"email": datos['email']})
         if usuario_existente:
+            print(f"❌ Email ya existe: {datos['email']}")
             return {"error": "El correo electrónico ya está registrado"}, 400
         
         # Verificar si el código de bombero ya existe
         bombero_existente = db.bomberos.find_one({"codigo_bombero": datos['codigo_bombero']})
         if bombero_existente:
+            print(f"❌ Código de bombero ya existe: {datos['codigo_bombero']}")
             return {"error": "El código de bombero ya está registrado"}, 400
         
         # Crear documento de usuario
@@ -28,20 +32,23 @@ def registrar_bombero(datos):
             "nombre": datos['nombre'],
             "apellido": datos['apellido'],
             "email": datos['email'],
-            "contrasena": generate_password_hash(datos['password']),
+            "password_hash": generate_password_hash(datos['password']),
             "telefono": datos.get('telefono', ''),
             "es_bombero": True,
             "fecha_registro": datetime.utcnow(),
-            "activo": True
+            "activo": True,
+            "foto_perfil": None
         }
         
-        # Insertar usuario
+        print(f"📝 Insertando usuario en colección 'usuarios'")
+        # Insertar usuario en la colección USUARIOS
         usuario_result = db.usuarios.insert_one(nuevo_usuario_data)
         usuario_id = str(usuario_result.inserted_id)
+        print(f"✅ Usuario creado con ID: {usuario_id}")
         
-        # Crear documento de bombero
+        # Crear documento de bombero en la colección BOMBEROS
         nuevo_bombero_data = {
-            "usuario_id": usuario_id,
+            "usuario_id": usuario_id,  # Referencia al usuario
             "codigo_bombero": datos['codigo_bombero'],
             "estacion_pertenencia": datos['estacion_pertenencia'],
             "rango": datos.get('rango', 'bombero'),
@@ -58,8 +65,10 @@ def registrar_bombero(datos):
             "incidentes_atendidos": 0
         }
         
-        # Insertar bombero
+        print(f"📝 Insertando bombero en colección 'bomberos'")
+        # Insertar bombero en la colección BOMBEROS
         bombero_result = db.bomberos.insert_one(nuevo_bombero_data)
+        print(f"✅ Bombero creado con ID: {str(bombero_result.inserted_id)}")
         
         return {
             "mensaje": "Bombero registrado con éxito",
@@ -70,6 +79,7 @@ def registrar_bombero(datos):
     
     except Exception as e:
         current_app.logger.error(f"Error al registrar bombero: {str(e)}")
+        print(f"❌ Error al registrar bombero: {str(e)}")
         return {"error": f"Error al registrar el bombero: {str(e)}"}, 500
 
 def obtener_bombero(usuario_id):
@@ -77,15 +87,38 @@ def obtener_bombero(usuario_id):
     Obtiene información completa de un bombero
     """
     try:
-        # Buscar bombero por usuario_id
+        print(f"🔍 Buscando bombero con usuario_id: {usuario_id}")
+        print(f"🔍 Tipo de usuario_id: {type(usuario_id)}")
+        
+        # Buscar bombero por usuario_id (puede estar como string o como ObjectId)
         bombero = db.bomberos.find_one({"usuario_id": usuario_id})
+        
         if not bombero:
+            # Intentar buscar también por ObjectId si no se encontró como string
+            try:
+                bombero = db.bomberos.find_one({"usuario_id": ObjectId(usuario_id)})
+                print(f"✅ Bombero encontrado usando ObjectId")
+            except:
+                pass
+        else:
+            print(f"✅ Bombero encontrado usando string")
+        
+        if not bombero:
+            print(f"❌ Bombero no encontrado en la colección")
+            # Debug: Listar algunos bomberos para ver el formato
+            sample = list(db.bomberos.find().limit(2))
+            print(f"📋 Sample de bomberos en DB: {sample}")
             return {"error": "Bombero no encontrado"}, 404
+        
+        print(f"📄 Documento bombero: {bombero}")
         
         # Buscar información del usuario
         usuario = db.usuarios.find_one({"_id": ObjectId(usuario_id)})
         if not usuario:
+            print(f"❌ Usuario no encontrado con _id: {usuario_id}")
             return {"error": "Usuario no encontrado"}, 404
+        
+        print(f"✅ Usuario encontrado: {usuario.get('email')}")
         
         # Combinar información
         info_completa = {
@@ -95,6 +128,7 @@ def obtener_bombero(usuario_id):
             "apellido": usuario.get("apellido", ""),
             "email": usuario.get("email", ""),
             "telefono": usuario.get("telefono", ""),
+            "foto_perfil": usuario.get("foto_perfil"),
             "codigo_bombero": bombero.get("codigo_bombero"),
             "estacion_pertenencia": bombero.get("estacion_pertenencia"),
             "rango": bombero.get("rango"),
@@ -358,7 +392,7 @@ def actualizar_perfil_bombero(usuario_id, datos):
     try:
         # Campos permitidos para actualizar en bomberos
         campos_bombero = ['especialidades', 'certificaciones', 'experiencia_anos', 'contacto_emergencia', 'rango']
-        campos_usuario = ['telefono']
+        campos_usuario = ['telefono', 'foto_perfil']
         
         update_bombero = {}
         update_usuario = {}
@@ -373,20 +407,29 @@ def actualizar_perfil_bombero(usuario_id, datos):
         # Actualizar bombero
         if update_bombero:
             update_bombero["ultima_actualizacion"] = datetime.utcnow()
-            db.bomberos.update_one(
+            result_bombero = db.bomberos.update_one(
                 {"usuario_id": usuario_id},
                 {"$set": update_bombero}
             )
+            
+            if result_bombero.matched_count == 0:
+                return {"error": "Bombero no encontrado"}, 404
         
         # Actualizar usuario
         if update_usuario:
             update_usuario["fecha_actualizacion"] = datetime.utcnow()
-            db.usuarios.update_one(
+            result_usuario = db.usuarios.update_one(
                 {"_id": ObjectId(usuario_id)},
                 {"$set": update_usuario}
             )
+            
+            if result_usuario.matched_count == 0:
+                return {"error": "Usuario no encontrado"}, 404
         
-        return {"mensaje": "Perfil actualizado exitosamente"}, 200
+        return {
+            "mensaje": "Perfil actualizado exitosamente",
+            "success": True
+        }, 200
     
     except Exception as e:
         current_app.logger.error(f"Error al actualizar perfil del bombero: {str(e)}")

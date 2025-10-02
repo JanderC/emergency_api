@@ -1,23 +1,28 @@
+# app/schemas/usuario_schema.py
 from marshmallow import Schema, fields, validate, validates, ValidationError
 
 class RegistroSchema(Schema):
-    nombre = fields.String(required=True, validate=validate.Length(min=2, max=100))
-    apellido = fields.String(required=True, validate=validate.Length(min=2, max=100))
+    """Schema para registro de usuario"""
+    nombre = fields.Str(required=True, validate=validate.Length(min=2, max=100))
+    apellido = fields.Str(required=True, validate=validate.Length(min=2, max=100))
     email = fields.Email(required=True)
-    password = fields.String(required=True, validate=validate.Length(min=8))
-    telefono = fields.String(validate=validate.Length(max=20))
-    es_bombero = fields.Boolean(default=False)
+    password = fields.Str(required=True, validate=validate.Length(min=6))
+    telefono = fields.Str(required=False, validate=validate.Length(min=10, max=15))
+    es_bombero = fields.Bool(missing=False)
+    
+    @validates('email')
+    def validate_email(self, value):
+        if not value or '@' not in value:
+            raise ValidationError('Email inválido')
 
 class LoginSchema(Schema):
+    """Schema para login de usuario"""
     email = fields.Email(required=True)
-    password = fields.String(required=True)
+    password = fields.Str(required=True, validate=validate.Length(min=6))
 
-class UsuarioSchema(Schema):
-    id = fields.String(dump_only=True)  # Changed from Integer to String for MongoDB ObjectId
-    nombre = fields.String()
-    apellido = fields.String()
-    email = fields.Email()
-    telefono = fields.String()
-    foto_perfil = fields.String()
-    es_bombero = fields.Boolean()
-    fecha_registro = fields.DateTime(dump_only=True)
+class ActualizarPerfilSchema(Schema):
+    """Schema para actualizar perfil de usuario"""
+    nombre = fields.Str(validate=validate.Length(min=2, max=100))
+    apellido = fields.Str(validate=validate.Length(min=2, max=100))
+    telefono = fields.Str(validate=validate.Length(min=10, max=15))
+    foto_perfil = fields.Str(allow_none=True)
