@@ -1,6 +1,6 @@
 # app/routes/bomberos.py
 from flask import Blueprint, request, jsonify, current_app
-from app.schemas.bombero_schema import RegistroBomberoSchema, BomberoSchema
+from app.schemas.bombero_schema import RegistroBomberoSchema, BomberoSchema, AprobarBomberoSchema
 from app.services.bombero_service import (
     registrar_bombero, 
     obtener_bombero, 
@@ -12,7 +12,7 @@ from app.services.bombero_service import (
     desactivar_bombero,
     obtener_bomberos_pendientes, 
     aprobar_bombero,
-    rechazar_bombero 
+    rechazar_bombero,
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
