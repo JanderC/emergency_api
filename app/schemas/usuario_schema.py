@@ -6,8 +6,8 @@ class RegistroSchema(Schema):
     nombre = fields.Str(required=True, validate=validate.Length(min=2, max=100))
     apellido = fields.Str(required=True, validate=validate.Length(min=2, max=100))
     email = fields.Email(required=True)
-    cedula = fields.Str(required=True, validate=validate.Length(min=6, max=20))  # NUEVO
-    direccion = fields.Str(required=True, validate=validate.Length(min=5, max=500))  # NUEVO
+    cedula = fields.Str(required=True, validate=validate.Length(min=6, max=20))  # AGREGAR
+    direccion = fields.Str(required=True, validate=validate.Length(min=5, max=500))  # AGREGAR
     password = fields.Str(required=True, validate=validate.Length(min=6))
     telefono = fields.Str(required=True, validate=validate.Length(min=10, max=15))
     es_bombero = fields.Bool(missing=False)
@@ -32,5 +32,5 @@ class ActualizarPerfilSchema(Schema):
     nombre = fields.Str(validate=validate.Length(min=2, max=100))
     apellido = fields.Str(validate=validate.Length(min=2, max=100))
     telefono = fields.Str(validate=validate.Length(min=10, max=15))
-    direccion = fields.Str(validate=validate.Length(min=5, max=500))  # NUEVO
+    direccion = fields.Str(validate=validate.Length(min=5, max=500))  # AGREGAR
     foto_perfil = fields.Str(allow_none=True)
