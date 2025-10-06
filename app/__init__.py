@@ -70,6 +70,10 @@ def create_app():
 
     from app.routes.ambulancias import ambulancia_bp
     app.register_blueprint(ambulancia_bp)
+
+
+    from app.routes.reportes_rapidos import reporte_rapido_bp
+    app.register_blueprint(reporte_rapido_bp)
     
     # Crear directorio de uploads si no existe
     if not os.path.exists(app.config['UPLOAD_FOLDER']):

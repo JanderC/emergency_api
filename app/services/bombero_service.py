@@ -4,27 +4,37 @@ Servicio mejorado para gestionar bomberos en MongoDB
 """
 from flask import current_app
 from app import db
-from werkzeug.security import generate_password_hash
+from app.models.bombero import Bombero
+from app.models.usuarios import Usuario
+from app.models.jefe_bomberos import JefeBomberos
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from bson.objectid import ObjectId
 
 def registrar_bombero(datos):
     """
     Registra un nuevo bombero en el sistema MongoDB
+    NUEVO: El bombero queda en estado 'pendiente' hasta ser aprobado por un jefe
     """
     try:
-        print(f"🔧 Iniciando registro de bombero con datos: {datos}")
+        print(f"Iniciando registro de bombero con datos: {datos}")
         
         # Verificar si el email ya existe
         usuario_existente = db.usuarios.find_one({"email": datos['email']})
         if usuario_existente:
-            print(f"❌ Email ya existe: {datos['email']}")
+            print(f"Email ya existe: {datos['email']}")
             return {"error": "El correo electrónico ya está registrado"}, 400
+        
+        # NUEVO: Verificar si la cédula ya existe
+        cedula_existente = db.usuarios.find_one({"cedula": datos['cedula']})
+        if cedula_existente:
+            print(f"Cédula ya existe: {datos['cedula']}")
+            return {"error": "La cédula ya está registrada"}, 400
         
         # Verificar si el código de bombero ya existe
         bombero_existente = db.bomberos.find_one({"codigo_bombero": datos['codigo_bombero']})
         if bombero_existente:
-            print(f"❌ Código de bombero ya existe: {datos['codigo_bombero']}")
+            print(f"Código de bombero ya existe: {datos['codigo_bombero']}")
             return {"error": "El código de bombero ya está registrado"}, 400
         
         # Crear documento de usuario
@@ -32,29 +42,33 @@ def registrar_bombero(datos):
             "nombre": datos['nombre'],
             "apellido": datos['apellido'],
             "email": datos['email'],
+            "cedula": datos['cedula'],  # NUEVO
+            "direccion": datos['direccion'],  # NUEVO
             "password_hash": generate_password_hash(datos['password']),
             "telefono": datos.get('telefono', ''),
             "es_bombero": True,
             "fecha_registro": datetime.utcnow(),
-            "activo": True,
+            "activo": False,  # NUEVO: Inactivo hasta ser aprobado
             "foto_perfil": None
         }
         
-        print(f"📝 Insertando usuario en colección 'usuarios'")
-        # Insertar usuario en la colección USUARIOS
+        print(f"Insertando usuario en colección 'usuarios'")
         usuario_result = db.usuarios.insert_one(nuevo_usuario_data)
         usuario_id = str(usuario_result.inserted_id)
-        print(f"✅ Usuario creado con ID: {usuario_id}")
+        print(f"Usuario creado con ID: {usuario_id}")
         
         # Crear documento de bombero en la colección BOMBEROS
         nuevo_bombero_data = {
-            "usuario_id": usuario_id,  # Referencia al usuario
+            "usuario_id": usuario_id,
             "codigo_bombero": datos['codigo_bombero'],
             "estacion_pertenencia": datos['estacion_pertenencia'],
             "rango": datos.get('rango', 'bombero'),
             "especialidades": datos.get('especialidades', []),
             "carnet_foto": datos.get('carnet_foto'),
-            "estado_servicio": 'disponible',
+            "estado_servicio": 'fuera_servicio',  # NUEVO: No disponible hasta ser aprobado
+            "estado_aprobacion": 'pendiente',  # NUEVO
+            "aprobado_por": None,  # NUEVO
+            "fecha_aprobacion": None,  # NUEVO
             "fecha_registro": datetime.utcnow(),
             "certificaciones": datos.get('certificaciones', []),
             "experiencia_anos": datos.get('experiencia_anos', 0),
@@ -65,21 +79,21 @@ def registrar_bombero(datos):
             "incidentes_atendidos": 0
         }
         
-        print(f"📝 Insertando bombero en colección 'bomberos'")
-        # Insertar bombero en la colección BOMBEROS
+        print(f"Insertando bombero en colección 'bomberos'")
         bombero_result = db.bomberos.insert_one(nuevo_bombero_data)
-        print(f"✅ Bombero creado con ID: {str(bombero_result.inserted_id)}")
+        print(f"Bombero creado con ID: {str(bombero_result.inserted_id)}")
         
         return {
-            "mensaje": "Bombero registrado con éxito",
+            "mensaje": "Solicitud de registro de bombero enviada. Pendiente de aprobación por el jefe de estación.",
             "usuario_id": usuario_id,
             "bombero_id": str(bombero_result.inserted_id),
-            "codigo_bombero": datos['codigo_bombero']
+            "codigo_bombero": datos['codigo_bombero'],
+            "estado": "pendiente_aprobacion"
         }, 201
     
     except Exception as e:
         current_app.logger.error(f"Error al registrar bombero: {str(e)}")
-        print(f"❌ Error al registrar bombero: {str(e)}")
+        print(f"Error al registrar bombero: {str(e)}")
         return {"error": f"Error al registrar el bombero: {str(e)}"}, 500
 
 def obtener_bombero(usuario_id):
@@ -471,3 +485,145 @@ def desactivar_bombero(usuario_id, admin_id):
     except Exception as e:
         current_app.logger.error(f"Error al desactivar bombero: {str(e)}")
         return {"error": "Error al desactivar bombero"}, 500
+    
+def rechazar_bombero(bombero_id, codigo_jefe, password_jefe):
+    """
+    Rechaza el registro de un bombero
+    Solo puede ser realizado por un jefe de bomberos
+    """
+    try:
+        # Buscar jefe por código
+        jefe = db.jefes_bomberos.find_one({"codigo_jefe": codigo_jefe, "activo": True})
+        if not jefe:
+            return {"error": "Código de jefe inválido"}, 403
+        
+        # Verificar contraseña del jefe
+        usuario_jefe = db.usuarios.find_one({"_id": ObjectId(jefe["usuario_id"])})
+        if not usuario_jefe or not check_password_hash(usuario_jefe.get("password_hash", ""), password_jefe):
+            return {"error": "Credenciales de jefe incorrectas"}, 403
+        
+        # Buscar bombero
+        bombero = db.bomberos.find_one({"_id": ObjectId(bombero_id)})
+        if not bombero:
+            return {"error": "Bombero no encontrado"}, 404
+        
+        if bombero.get("estado_aprobacion") != "pendiente":
+            return {"error": "El bombero ya fue procesado"}, 400
+        
+        # Rechazar bombero
+        db.bomberos.update_one(
+            {"_id": ObjectId(bombero_id)},
+            {
+                "$set": {
+                    "estado_aprobacion": "rechazado",
+                    "aprobado_por": jefe["usuario_id"],
+                    "fecha_aprobacion": datetime.utcnow(),
+                    "ultima_actualizacion": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {
+            "mensaje": "Solicitud de bombero rechazada",
+            "bombero_id": bombero_id,
+            "rechazado_por": jefe["codigo_jefe"]
+        }, 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Error al rechazar bombero: {str(e)}")
+        return {"error": "Error al rechazar bombero"}, 500
+    
+def aprobar_bombero(bombero_id, codigo_jefe, password_jefe):
+    """
+    Aprueba el registro de un bombero
+    Solo puede ser realizado por un jefe de bomberos
+    """
+    try:
+        # Buscar jefe por código
+        jefe = db.jefes_bomberos.find_one({"codigo_jefe": codigo_jefe, "activo": True})
+        if not jefe:
+            return {"error": "Código de jefe inválido"}, 403
+        
+        # Verificar contraseña del jefe
+        usuario_jefe = db.usuarios.find_one({"_id": ObjectId(jefe["usuario_id"])})
+        if not usuario_jefe or not check_password_hash(usuario_jefe.get("password_hash", ""), password_jefe):
+            return {"error": "Credenciales de jefe incorrectas"}, 403
+        
+        # Buscar bombero
+        bombero = db.bomberos.find_one({"_id": ObjectId(bombero_id)})
+        if not bombero:
+            return {"error": "Bombero no encontrado"}, 404
+        
+        if bombero.get("estado_aprobacion") != "pendiente":
+            return {"error": "El bombero ya fue procesado"}, 400
+        
+        # Aprobar bombero
+        db.bomberos.update_one(
+            {"_id": ObjectId(bombero_id)},
+            {
+                "$set": {
+                    "estado_aprobacion": "aprobado",
+                    "aprobado_por": jefe["usuario_id"],
+                    "fecha_aprobacion": datetime.utcnow(),
+                    "estado_servicio": "disponible",
+                    "ultima_actualizacion": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Activar usuario
+        db.usuarios.update_one(
+            {"_id": ObjectId(bombero["usuario_id"])},
+            {"$set": {"activo": True}}
+        )
+        
+        return {
+            "mensaje": "Bombero aprobado exitosamente",
+            "bombero_id": bombero_id,
+            "aprobado_por": jefe["codigo_jefe"]
+        }, 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Error al aprobar bombero: {str(e)}")
+        return {"error": "Error al aprobar bombero"}, 500
+
+def obtener_bomberos_pendientes():
+    """
+    Obtiene lista de bomberos pendientes de aprobación
+    """
+    try:
+        bomberos = list(db.bomberos.find({
+            "estado_aprobacion": "pendiente"
+        }).sort("fecha_registro", -1))
+        
+        bomberos_completos = []
+        for bombero in bomberos:
+            try:
+                usuario = db.usuarios.find_one({"_id": ObjectId(bombero["usuario_id"])})
+                if usuario:
+                    info = {
+                        "_id": str(bombero["_id"]),
+                        "usuario_id": bombero["usuario_id"],
+                        "nombre": f"{usuario.get('nombre', '')} {usuario.get('apellido', '')}",
+                        "email": usuario.get("email", ""),
+                        "cedula": usuario.get("cedula", ""),
+                        "telefono": usuario.get("telefono", ""),
+                        "codigo_bombero": bombero.get("codigo_bombero"),
+                        "estacion_pertenencia": bombero.get("estacion_pertenencia"),
+                        "rango": bombero.get("rango"),
+                        "especialidades": bombero.get("especialidades", []),
+                        "experiencia_anos": bombero.get("experiencia_anos", 0),
+                        "fecha_registro": bombero.get("fecha_registro"),
+                        "estado_aprobacion": bombero.get("estado_aprobacion")
+                    }
+                    bomberos_completos.append(info)
+            except Exception as e:
+                current_app.logger.warning(f"Error al procesar bombero {bombero.get('usuario_id')}: {str(e)}")
+                continue
+        
+        return bomberos_completos, 200
+    
+    except Exception as e:
+        current_app.logger.error(f"Error al obtener bomberos pendientes: {str(e)}")
+        return {"error": "Error al obtener bomberos pendientes"}, 500    
+    

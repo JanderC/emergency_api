@@ -6,17 +6,25 @@ from datetime import timedelta
 class AuthService:
     @staticmethod
     def registrar_usuario(datos):
-        print("entro en registro usuarios")
-        # Verificar si el usuario ya existe
+        print("Entrando en registro de usuarios")
+        
+        # Verificar si el email ya existe
         usuario_existente = Usuario.find_by_email(datos['email'])
         if usuario_existente:
             return {'error': 'El email ya está registrado'}, 400
+        
+        # NUEVO: Verificar si la cédula ya existe
+        cedula_existente = Usuario.find_by_cedula(datos['cedula'])
+        if cedula_existente:
+            return {'error': 'La cédula ya está registrada'}, 400
         
         # Crear nuevo usuario
         nuevo_usuario = Usuario(
             nombre=datos['nombre'],
             apellido=datos['apellido'],
             email=datos['email'],
+            cedula=datos['cedula'],  # NUEVO
+            direccion=datos['direccion'],  # NUEVO
             telefono=datos.get('telefono', ''),
             es_bombero=datos.get('es_bombero', False)
         )
@@ -24,13 +32,15 @@ class AuthService:
         # Establecer contraseña
         nuevo_usuario.set_password(datos['password'])
         
-        print("Debugguer en registrar usuario")
         print(f"Nuevo usuario: {nuevo_usuario.nombre} {nuevo_usuario.apellido} ({nuevo_usuario.email})")
         
         # Guardar en la base de datos
         try:
             if nuevo_usuario.save():
-                return {'mensaje': 'Usuario registrado exitosamente'}, 201
+                return {
+                    'mensaje': 'Usuario registrado exitosamente',
+                    'usuario_id': nuevo_usuario.id
+                }, 201
             else:
                 return {'error': 'Error al guardar el usuario'}, 500
         except Exception as e:
@@ -46,19 +56,23 @@ class AuthService:
         if not usuario or not usuario.check_password(datos['password']):
             return {'error': 'Credenciales inválidas'}, 401
         
+        # Verificar si el usuario está activo
+        if not usuario.activo:
+            return {'error': 'Usuario inactivo. Contacte al administrador'}, 403
+        
         # Generar tokens de acceso y refresh
         access_token = create_access_token(
             identity=str(usuario.id),
             additional_claims={
                 'es_bombero': usuario.es_bombero,
-                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id también
+                'usuario_id': str(usuario.id)
             },
             expires_delta=timedelta(hours=1)
         )
         refresh_token = create_refresh_token(
             identity=str(usuario.id),
             additional_claims={
-                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id en el refresh token
+                'usuario_id': str(usuario.id)
             },
             expires_delta=timedelta(days=30)
         )
@@ -79,7 +93,7 @@ class AuthService:
             identity=str(usuario.id),
             additional_claims={
                 'es_bombero': usuario.es_bombero,
-                'usuario_id': str(usuario.id)  # Añadimos el ID como usuario_id aquí también
+                'usuario_id': str(usuario.id)
             },
             expires_delta=timedelta(hours=1)
         )

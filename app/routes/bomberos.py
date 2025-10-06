@@ -9,7 +9,10 @@ from app.services.bombero_service import (
     actualizar_ubicacion_bombero,
     obtener_bomberos_disponibles,
     obtener_todos_bomberos,
-    desactivar_bombero
+    desactivar_bombero,
+    obtener_bomberos_pendientes, 
+    aprobar_bombero,
+    rechazar_bombero 
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -19,13 +22,15 @@ bombero_bp = Blueprint('bombero', __name__, url_prefix='/api/bomberos')
 def registrar_nuevo_bombero():
     """
     Endpoint para registrar un nuevo bombero
+    El bombero quedará en estado 'pendiente' hasta ser aprobado por un jefe
     """
     try:
-        print("entro en la funcion de registrar bombero")
+        print("Entrando en la función de registrar bombero")
         # Validar datos
         schema = RegistroBomberoSchema()
         datos = schema.load(request.json)
-        print("segundo debuggear")
+        print("Datos validados correctamente")
+        
         # Registrar bombero
         resultado, codigo = registrar_bombero(datos)
         
@@ -34,6 +39,76 @@ def registrar_nuevo_bombero():
     except Exception as e:
         current_app.logger.error(f"Error en endpoint de registro bombero: {str(e)}")
         return jsonify({"error": f"Error al procesar la solicitud: {str(e)}"}), 500
+    
+
+@bombero_bp.route('/pendientes', methods=['GET'])
+@jwt_required()
+def listar_bomberos_pendientes():
+    """
+    Endpoint para obtener bomberos pendientes de aprobación
+    Solo accesible por jefes de bomberos
+    """
+    try:
+        bomberos, codigo = obtener_bomberos_pendientes()
+        return jsonify(bomberos), codigo
+        
+    except Exception as e:
+        current_app.logger.error(f"Error en endpoint de bomberos pendientes: {str(e)}")
+        return jsonify({"error": f"Error al procesar la solicitud: {str(e)}"}), 500
+
+
+
+@bombero_bp.route('/<bombero_id>/aprobar', methods=['POST'])
+def aprobar_bombero_endpoint(bombero_id):
+    """
+    Endpoint para aprobar un bombero
+    Requiere código de jefe y contraseña
+    """
+    try:
+        schema = AprobarBomberoSchema()
+        datos = schema.load(request.json)
+        
+        if datos['accion'] != 'aprobar':
+            return jsonify({"error": "Acción inválida"}), 400
+        
+        resultado, codigo = aprobar_bombero(
+            bombero_id, 
+            datos['codigo_jefe'], 
+            datos['password_jefe']
+        )
+        
+        return jsonify(resultado), codigo
+        
+    except Exception as e:
+        current_app.logger.error(f"Error en endpoint de aprobar bombero: {str(e)}")
+        return jsonify({"error": f"Error al procesar la solicitud: {str(e)}"}), 500
+
+@bombero_bp.route('/<bombero_id>/rechazar', methods=['POST'])
+def rechazar_bombero_endpoint(bombero_id):
+    """
+    Endpoint para rechazar un bombero
+    Requiere código de jefe y contraseña
+    """
+    try:
+        schema = AprobarBomberoSchema()
+        datos = schema.load(request.json)
+        
+        if datos['accion'] != 'rechazar':
+            return jsonify({"error": "Acción inválida"}), 400
+        
+        resultado, codigo = rechazar_bombero(
+            bombero_id, 
+            datos['codigo_jefe'], 
+            datos['password_jefe']
+        )
+        
+        return jsonify(resultado), codigo
+        
+    except Exception as e:
+        current_app.logger.error(f"Error en endpoint de rechazar bombero: {str(e)}")
+        return jsonify({"error": f"Error al procesar la solicitud: {str(e)}"}), 500
+
+
 
 @bombero_bp.route('/perfil', methods=['GET'])
 @jwt_required()

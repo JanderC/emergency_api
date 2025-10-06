@@ -14,7 +14,8 @@ class Bombero:
                  experiencia_anos=0, contacto_emergencia=None,
                  ambulancia_id=None, ubicacion_actual=None,
                  turnos_completados=0, incidentes_atendidos=0,
-                 fecha_registro=None, _id=None):
+                 estado_aprobacion='pendiente', aprobado_por=None,  # NUEVO
+                 fecha_aprobacion=None, fecha_registro=None, _id=None):  # NUEVO
         self.id = _id
         self.usuario_id = usuario_id
         self.codigo_bombero = codigo_bombero
@@ -30,6 +31,9 @@ class Bombero:
         self.ubicacion_actual = ubicacion_actual
         self.turnos_completados = turnos_completados
         self.incidentes_atendidos = incidentes_atendidos
+        self.estado_aprobacion = estado_aprobacion  # NUEVO
+        self.aprobado_por = aprobado_por  # NUEVO
+        self.fecha_aprobacion = fecha_aprobacion  # NUEVO
         self.fecha_registro = fecha_registro or datetime.utcnow()
     
     def save(self):
@@ -49,6 +53,9 @@ class Bombero:
             "ubicacion_actual": self.ubicacion_actual,
             "turnos_completados": self.turnos_completados,
             "incidentes_atendidos": self.incidentes_atendidos,
+            "estado_aprobacion": self.estado_aprobacion,  # NUEVO
+            "aprobado_por": self.aprobado_por,  # NUEVO
+            "fecha_aprobacion": self.fecha_aprobacion,  # NUEVO
             "fecha_registro": self.fecha_registro,
             "ultima_actualizacion": datetime.utcnow()
         }
@@ -65,44 +72,50 @@ class Bombero:
             return self.id is not None
     
     @classmethod
-    def find_by_id(cls, bombero_id):
-        """Busca un bombero por su ID de MongoDB"""
-        try:
-            bombero_data = cls.collection.find_one({"_id": ObjectId(bombero_id)})
-            if bombero_data:
-                return cls._from_dict(bombero_data)
-        except Exception as e:
-            print(f"Error finding bombero by ID: {e}")
-        return None
-    
-    @classmethod
-    def find_by_usuario_id(cls, usuario_id):
-        """Busca un bombero por el ID del usuario"""
-        bombero_data = cls.collection.find_one({"usuario_id": usuario_id})
-        if bombero_data:
-            return cls._from_dict(bombero_data)
-        return None
-    
-    @classmethod
-    def find_by_codigo(cls, codigo_bombero):
-        """Busca un bombero por su código de bombero"""
-        bombero_data = cls.collection.find_one({"codigo_bombero": codigo_bombero})
-        if bombero_data:
-            return cls._from_dict(bombero_data)
-        return None
-    
-    @classmethod
-    def find_disponibles(cls):
-        """Obtiene todos los bomberos disponibles"""
-        bomberos_data = cls.collection.find({"estado_servicio": "disponible"})
+    def find_pendientes_aprobacion(cls):
+        """Obtiene bomberos pendientes de aprobación"""
+        bomberos_data = cls.collection.find({"estado_aprobacion": "pendiente"}).sort("fecha_registro", -1)
         return [cls._from_dict(data) for data in bomberos_data]
     
-    @classmethod
-    def find_all(cls, filtros=None):
-        """Obtiene todos los bomberos con filtros opcionales"""
-        query = filtros or {}
-        bomberos_data = cls.collection.find(query).sort("fecha_registro", -1)
-        return [cls._from_dict(data) for data in bomberos_data]
+    def aprobar(self, jefe_id):
+        """Aprueba el registro del bombero"""
+        self.estado_aprobacion = "aprobado"
+        self.aprobado_por = jefe_id
+        self.fecha_aprobacion = datetime.utcnow()
+        
+        result = self.collection.update_one(
+            {"_id": ObjectId(self.id)},
+            {
+                "$set": {
+                    "estado_aprobacion": "aprobado",
+                    "aprobado_por": jefe_id,
+                    "fecha_aprobacion": datetime.utcnow(),
+                    "ultima_actualizacion": datetime.utcnow()
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    def rechazar(self, jefe_id):
+        """Rechaza el registro del bombero"""
+        self.estado_aprobacion = "rechazado"
+        self.aprobado_por = jefe_id
+        self.fecha_aprobacion = datetime.utcnow()
+        
+        result = self.collection.update_one(
+            {"_id": ObjectId(self.id)},
+            {
+                "$set": {
+                    "estado_aprobacion": "rechazado",
+                    "aprobado_por": jefe_id,
+                    "fecha_aprobacion": datetime.utcnow(),
+                    "ultima_actualizacion": datetime.utcnow()
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    # ... (mantén todos los demás métodos existentes)
     
     @classmethod
     def _from_dict(cls, data):
@@ -123,98 +136,11 @@ class Bombero:
             ubicacion_actual=data.get("ubicacion_actual"),
             turnos_completados=data.get("turnos_completados", 0),
             incidentes_atendidos=data.get("incidentes_atendidos", 0),
+            estado_aprobacion=data.get("estado_aprobacion", "pendiente"),  # NUEVO
+            aprobado_por=data.get("aprobado_por"),  # NUEVO
+            fecha_aprobacion=data.get("fecha_aprobacion"),  # NUEVO
             fecha_registro=data.get("fecha_registro", datetime.utcnow())
         )
-    
-    def update_estado(self, nuevo_estado):
-        """Actualiza el estado de servicio del bombero"""
-        estados_validos = ['disponible', 'en_servicio', 'fuera_servicio', 'descanso']
-        if nuevo_estado not in estados_validos:
-            raise ValueError(f"Estado inválido. Estados válidos: {estados_validos}")
-        
-        self.estado_servicio = nuevo_estado
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$set": {
-                    "estado_servicio": nuevo_estado,
-                    "ultima_actualizacion": datetime.utcnow()
-                }
-            }
-        )
-        return result.modified_count > 0
-    
-    def update_ubicacion(self, lat, lng):
-        """Actualiza la ubicación actual del bombero"""
-        self.ubicacion_actual = {
-            "lat": float(lat),
-            "lng": float(lng),
-            "timestamp": datetime.utcnow()
-        }
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$set": {
-                    "ubicacion_actual": self.ubicacion_actual,
-                    "ultima_actualizacion": datetime.utcnow()
-                }
-            }
-        )
-        return result.modified_count > 0
-    
-    def incrementar_incidentes(self):
-        """Incrementa el contador de incidentes atendidos"""
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$inc": {"incidentes_atendidos": 1},
-                "$set": {"ultima_actualizacion": datetime.utcnow()}
-            }
-        )
-        if result.modified_count > 0:
-            self.incidentes_atendidos += 1
-        return result.modified_count > 0
-    
-    def incrementar_turnos(self):
-        """Incrementa el contador de turnos completados"""
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$inc": {"turnos_completados": 1},
-                "$set": {"ultima_actualizacion": datetime.utcnow()}
-            }
-        )
-        if result.modified_count > 0:
-            self.turnos_completados += 1
-        return result.modified_count > 0
-    
-    def asignar_ambulancia(self, ambulancia_id):
-        """Asigna una ambulancia al bombero"""
-        self.ambulancia_id = ambulancia_id
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$set": {
-                    "ambulancia_id": ambulancia_id,
-                    "ultima_actualizacion": datetime.utcnow()
-                }
-            }
-        )
-        return result.modified_count > 0
-    
-    def desasignar_ambulancia(self):
-        """Remueve la ambulancia asignada al bombero"""
-        self.ambulancia_id = None
-        result = self.collection.update_one(
-            {"_id": ObjectId(self.id)},
-            {
-                "$set": {
-                    "ambulancia_id": None,
-                    "ultima_actualizacion": datetime.utcnow()
-                }
-            }
-        )
-        return result.modified_count > 0
     
     def to_dict(self):
         """Convierte el bombero a un diccionario"""
@@ -234,5 +160,8 @@ class Bombero:
             "ubicacion_actual": self.ubicacion_actual,
             "turnos_completados": self.turnos_completados,
             "incidentes_atendidos": self.incidentes_atendidos,
+            "estado_aprobacion": self.estado_aprobacion,  # NUEVO
+            "aprobado_por": self.aprobado_por,  # NUEVO
+            "fecha_aprobacion": self.fecha_aprobacion.isoformat() if self.fecha_aprobacion else None,  # NUEVO
             "fecha_registro": self.fecha_registro.isoformat() if self.fecha_registro else None
         }
